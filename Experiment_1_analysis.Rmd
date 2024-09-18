@@ -1,0 +1,1062 @@
+---
+title: "Rebindaine et al. (2024)"
+author: "Dominic Rebindaine"
+date: "2024-09-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This document displays the analysis of bud length data of experiment 1 in "Development underpins the summer solstice reversal of the effects of climate warming on the autumn phenology of European beech" Rebindaine et al. (2024). The data is loaded and restructured, bud set dates (end-of-season, EOS) are derived and analysed in context of the various treatments, then figures are plotted.
+
+### Load required packages
+
+```{r load packages}
+library(tidyverse)
+library(cropgrowdays)
+library(lmerTest)
+require(broom.mixed)
+require(patchwork)
+require(data.table)
+require(lme4)
+require(eoffice)
+require(ggpmisc)
+require(parameters)
+```
+
+### Configure input/output
+
+```{r in/out}
+
+input.path = '/Users/dominic/Documents/Crowther/r/phen_exp_2023/data'
+
+output.path = '/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/buds'
+
+```
+
+### Load and restructure data
+
+```{r load data}
+# import data
+bud.df = read.csv(paste(input.path, '2023_phen_exp_buds.csv', sep = '/'))
+
+bud.df = bud.df %>% 
+  mutate(treatment.timing = ifelse(group %in% c('N','P','O','Q'), 'July',
+                                   ifelse(group %in% c('R','S','T','U'), 'August', 'Control')),
+    cooling.level = ifelse(group %in% c('N','O','R','S'), 'Moderate',
+                                ifelse(group %in% c('P','Q','T','U'), 'Extreme', 'Control')))
+
+str(bud.df)
+# recode vars
+bud.df$apical = as.numeric(bud.df$apical)
+bud.df$measurement.date = as.Date(bud.df$measurement.date, format = '%d.%m.%y')
+
+# make the data frame long format
+bud.df = bud.df %>% 
+          pivot_longer(-c('id', 'group', 'number', 'cooling.level', 'lo.timing', 'treatment.timing', 'lo.doy', 'measurement.date'),
+                    names_to = 'bud.type', values_to = 'bud.length') %>% 
+  # remove NAs
+  filter(!is.na(bud.length)) %>% 
+     # group to individ bud
+  group_by(id, bud.type) %>% 
+   # only keep buds with more than 8 measurements
+  filter(n() >= 8) %>% 
+  ungroup()
+
+# Add measurement.doy column
+bud.df$measurement.doy = day_of_year(bud.df$measurement.date)
+
+# get mean and sd of groups over time
+sum_buds = bud.df %>% 
+  group_by(group,measurement.doy,measurement.date,treatment.timing,lo.timing,cooling.level) %>% 
+  summarise(across(bud.length, list(mean = mean, sd = sd), na.rm =T))
+
+```
+
+### Sample sizes
+
+```{r sample sizes}
+# Observed buds per treatment
+table(bud.df[bud.df$measurement.date=="2023-08-29",]$group, bud.df[bud.df$measurement.date=="2023-11-02",]$bud.type)
+
+# Number of individual trees
+length(unique(bud.df$id))
+
+# Number of individual trees per treatment
+length(unique(bud.df[bud.df$group=="L",]$id))
+
+length(unique(bud.df[bud.df$group=="M",]$id))
+
+length(unique(bud.df[bud.df$group=="N",]$id))
+
+length(unique(bud.df[bud.df$group=="O",]$id))
+
+length(unique(bud.df[bud.df$group=="P",]$id))
+
+length(unique(bud.df[bud.df$group=="Q",]$id))
+
+length(unique(bud.df[bud.df$group=="R",]$id))
+
+length(unique(bud.df[bud.df$group=="S",]$id))
+
+length(unique(bud.df[bud.df$group=="T",]$id))
+
+length(unique(bud.df[bud.df$group=="U",]$id))
+```
+
+### Compute bud growth and relative bud lengths
+
+```{r bud growth}
+
+####################################################
+## Get relative and absolute bud growth
+####################################################
+
+bud.df = bud.df %>%
+  group_by(id, bud.type) %>%
+  mutate(
+    # Get relative bud length per individual
+    bud.rel = bud.length / max(bud.length),
+    # Get bud growth rates per individual
+    across(bud.length, ~c(NA, diff(.)), .names = "bud.growth"),
+    # Get relative bud growth rates per individual
+    across(bud.rel, ~c(NA, diff(.)), .names = "relbud.growth"),
+    # Get date of maximum bud length per individual
+    date.max.bud = measurement.date[which.max(bud.length)]) %>%
+  ungroup()
+
+######################################################################
+## Mean bud growth per treatment
+######################################################################
+
+minbud.df = bud.df %>% 
+  group_by(id, bud.type) %>% 
+  filter(row_number() <= which.min(bud.length)) %>% 
+  select(id, group, bud.type, bud.length, bud.rel, date.max.bud)
+
+maxbud.df = bud.df %>% 
+  group_by(id, bud.type) %>% 
+  filter(row_number() == min(which(bud.rel > 0.9))) %>% 
+  select(id, group, bud.type, bud.length, bud.rel, date.max.bud)
+
+minmaxbud.df = merge(minbud.df, maxbud.df, by = c('id', 'bud.type'))
+
+minmaxbud.df = minmaxbud.df %>% 
+  group_by(id, bud.type) %>% 
+  mutate(diff = bud.length.y - bud.length.x,
+         total.rel.growth = (1-bud.length.x/bud.length.y)*100)
+
+averages = minmaxbud.df %>% 
+  group_by(group.x) %>% 
+  summarise(meandiff = round(mean(diff),2),
+            ci.diff = round(1.96*standard_error(diff),2),
+            ci.lower.diff = round(meandiff - 1.96*standard_error(diff),2),
+            ci.upper.diff = round(meandiff + 1.96*standard_error(diff),2),
+            mean.total.rel = round(mean(total.rel.growth),2),
+            ci.total.rel = round(1.96*standard_error(total.rel.growth),2),
+            ci.lower.rel = round(mean.total.rel - 1.96*standard_error(total.rel.growth),2),
+            ci.upper.rel = round(mean.total.rel + 1.96*standard_error(total.rel.growth),2))
+
+# check if any buds were over 90% of their final length at first measurement
+over90start = bud.df %>% 
+  group_by(id,bud.type) %>% 
+  summarise(first = first(bud.rel)) %>% filter(first >= 0.9) # none
+
+```
+
+### Plot bud lengths
+
+```{r plot bud}
+
+  plotTheme1 = theme(
+    legend.position   = "right",
+    legend.background = element_rect(fill=NA, linewidth=0.5, linetype="solid"),
+    legend.text       = element_text(color="black"),
+    panel.background  = element_blank(),
+    axis.text         = element_text(colour = "black"),
+    panel.border      = element_rect(colour = "black", fill=NA),
+    axis.line         = element_line(color = "black"),
+    strip.background  = element_rect(fill=NA),
+    strip.text        = element_text(colour = 'black'),
+    plot.title        = element_text(face="bold",hjust = 0.5))
+  
+  budpal = c('#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a')
+  
+# mean bud length over time for each treatment group coloured by treatment
+sum_buds %>% ggplot(aes(measurement.date, bud.length_mean, group = group, colour = group)) +
+  geom_line() +
+  scale_colour_manual(values = budpal) +
+  plotTheme1
+
+```
+
+### EOS derivation
+
+```{r EOS}
+
+# Interpolate 90% bud set dates from seasonal bud length measurements
+bud.data.90 = bud.df %>%
+  group_by(id, group, bud.type, lo.doy) %>%
+  # Find the last row with <90% bud length in each group, keep only this row and next
+   filter(row_number() <= min(which(bud.rel > 0.9)),
+          row_number() >= min(which(bud.rel > 0.9))-1) %>%
+  #Linear interpolation
+  summarize(EOS     = as.Date(approx(bud.rel, measurement.date, .9,  ties=min)$y, origin="1970-01-01")) %>%
+  mutate(EOS.DOY    = yday(EOS)) %>%
+  ungroup()
+
+
+# Mean EOS DOY per treatment
+##############################
+
+eos.doy.mean = bud.data.90 %>% group_by(group) %>% 
+  summarise(mean.EOS.DOY = round(mean(EOS.DOY),0))
+
+# Buds analysis data summary
+##############################
+BudsSummary = merge(bud.data.90, minmaxbud.df, by = c('id', 'bud.type')) %>% 
+  select(id, bud.type, group, lo.doy, EOS, EOS.DOY, bud.length.x, bud.length.y, diff, total.rel.growth)
+
+AverageSummary = BudsSummary %>% 
+  group_by(group) %>% 
+  summarise(
+    meanEOS.DOY = round(mean(EOS.DOY),1),
+            ci.lower.EOS = round(meanEOS.DOY - 1.96*standard_error(EOS.DOY),1),
+            ci.upper.EOS = round(meanEOS.DOY + 1.96*standard_error(EOS.DOY),1),
+    meandiff = round(mean(diff),2),
+            ci.lower.diff = round(meandiff - 1.96*standard_error(diff),2),
+            ci.upper.diff = round(meandiff + 1.96*standard_error(diff),2),
+    mean.total.rel = round(mean(total.rel.growth),2),
+            ci.lower.rel = round(mean.total.rel - 1.96*standard_error(total.rel.growth),2),
+            ci.upper.rel = round(mean.total.rel + 1.96*standard_error(total.rel.growth),2))
+
+```
+
+### Complete dataframe
+
+```{r EOS plotting}
+# Translate lettered groups into treatment descriptions
+BudsSummary = BudsSummary %>% 
+  mutate(lo.timing = ifelse(group %in% c('L','N','P','R','T'), 'early','late'),
+    treatment.timing = ifelse(group %in% c('N','P','O','Q'), 'July',
+                                   ifelse(group %in% c('R','S','T','U'), 'August', 'Control')),
+    cooling.level = ifelse(group %in% c('N','O','R','S'), 'Moderate',
+                                ifelse(group %in% c('P','Q','T','U'), 'Extreme', 'Control')),
+    cooling = ifelse(cooling.level %in% c('Moderate','Extreme'),'Yes','No'),
+    # another column to combine Moderate and Extreme cooling into one treatment group
+    cooling.combined = ifelse(group %in% c('N','P'),'early.july',
+    ifelse(group %in% c('O','Q'), 'late.july',
+      ifelse(group %in% c('R','T'), 'early.aug',
+             ifelse(group %in% c('S','U'), 'late.aug',
+                    ifelse(group %in% c('M'), 'late.control', 'early.control'))))))
+
+#write_csv(BudsSummary, file = '/Users/dominic/Documents/Crowther/r/phen_exp_2023/data/BudsSummary.csv')
+
+######### factorise and relevel predictors
+
+# leaf-out timing
+BudsSummary$lo.timing = as.factor(BudsSummary$lo.timing)
+# treatment timing
+BudsSummary$treatment.timing = as.factor(BudsSummary$treatment.timing)
+BudsSummary$treatment.timing = fct_relevel(BudsSummary$treatment.timing, 'Control', 'July')
+# cooling level
+BudsSummary$cooling.level = as.factor(BudsSummary$cooling.level)
+BudsSummary$cooling.level = fct_relevel(BudsSummary$cooling.level, 'Control', 'Moderate')
+# cooling
+BudsSummary$cooling = as.factor(BudsSummary$cooling)
+# cooling.combined
+BudsSummary$cooling.combined = as.factor(BudsSummary$cooling.combined)
+BudsSummary$cooling.combined = fct_relevel(BudsSummary$cooling.combined, 'early.control', 'late.control', 'early.july', 'late.july', 'early.aug', 'late.aug')
+```
+
+### EOS Analysis
+
+```{r Bud set analysis}
+
+### Mixed effects modelling of bud set timing with bud type (apical vs lateral) as random effect
+
+# Treatment as number factor
+BudsSummary = BudsSummary %>% 
+  mutate(Treatment = as.factor(ifelse(group %in% 
+c("L"),1,
+                            ifelse(group %in% c("M"),2, 
+                                ifelse(group %in% c("N"),3,
+                                   ifelse(group %in% c("O"),4, 
+                                          ifelse(group %in% c("P"),5,
+                                                 ifelse(group %in% c("Q"),6,
+                                                  ifelse(group %in% 
+c("R"), 7, 
+                                          ifelse(group %in% 
+c("S"), 8,                
+                                            ifelse(group %in% 
+c("T"),9,
+
+10
+                                      
+                                      )))))))))))
+
+## Treatment as fixed predictor variable
+resultsLM = BudsSummary %>% 
+  do({model = lme4::lmer(EOS.DOY ~ Treatment + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+  mutate(term = factor(term, levels = c("Treatment2", "Treatment3", "Treatment4", "Treatment5", "Treatment6", "Treatment7", "Treatment8", "Treatment9", "Treatment10")))
+
+resultsLM = resultsLM %>% mutate(term = c("Late_control_control", "Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme"))
+       
+#Show results
+as.data.frame(resultsLM) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=1)
+
+## Leaf-out timing as fixed predictor variable
+resultsLM.LO = BudsSummary %>% 
+  do({model = lme4::lmer(EOS.DOY ~ lo.timing + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+  mutate(SEx2 = std.error*2)
+
+#Show results
+as.data.frame(resultsLM.LO) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+```
+
+#### Early groups only model
+
+```{r early only model}
+resultsLM.Early = BudsSummary %>% 
+  filter(lo.timing == 'early') %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupN", "groupP", "groupR", "groupT")),
+        SEx2 = std.error*2,
+        lo.timing = 'early')
+  
+#Show results
+as.data.frame(resultsLM.Early) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+# save results for plotting later
+toplot.resultsLM.Early = as.data.frame(resultsLM.Early) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+```
+
+#### Late groups only model
+
+```{r late only model}
+resultsLM.Late = BudsSummary %>% 
+  filter(lo.timing == 'late') %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupO", "groupQ", "groupS", "groupU")),
+        SEx2 = std.error*2,
+        lo.timing = 'late')
+  
+#Show results
+as.data.frame(resultsLM.Late) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)   
+
+# save results for plotting later
+toplot.resultsLM.Late = as.data.frame(resultsLM.Late) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+# merge early and late dfs for plotting later
+toplot.resultsLMEarlyLate = rbind(toplot.resultsLM.Early,toplot.resultsLM.Late)
+
+# relevel factors to put treatment pairs in right order
+toplot.resultsLMEarlyLate$term = fct_relevel(toplot.resultsLMEarlyLate$term, 'groupN', 'groupO', 'groupP', 'groupQ', 'groupR', 'groupS', 'groupT', 'groupU')
+```
+
+#### L vs M analysis
+
+```{r L vs M}
+resultsLM.LvM = BudsSummary %>% 
+  filter(group %in% c('L','M')) %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupM")),SEx2 = std.error*2)
+  
+       
+#Show results
+as.data.frame(resultsLM.LvM) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+```
+
+#### N vs O analysis
+
+```{r N vs O}
+resultsLM.NvO = BudsSummary %>% 
+  filter(group %in% c('N','O')) %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupO")),SEx2 = std.error*2)
+  
+       
+#Show results
+as.data.frame(resultsLM.NvO) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+```
+
+#### P vs Q analysis
+
+```{r P vs Q}
+resultsLM.PvQ = BudsSummary %>% 
+  filter(group %in% c('P','Q')) %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupQ")),SEx2 = std.error*2)
+  
+       
+#Show results
+as.data.frame(resultsLM.PvQ) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+```
+
+#### R vs S analysis
+
+```{r R vs S}
+resultsLM.RvS = BudsSummary %>% 
+  filter(group %in% c('R','S')) %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupS")),SEx2 = std.error*2)
+  
+       
+#Show results
+as.data.frame(resultsLM.RvS) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+```
+
+#### T vs U analysis
+
+```{r T vs U}
+resultsLM.TvU = BudsSummary %>% 
+  filter(group %in% c('T','U')) %>% 
+do({model = lme4::lmer(EOS.DOY ~ group + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+ mutate(term = factor(term, levels = c("groupU")),SEx2 = std.error*2)
+  
+       
+#Show results
+as.data.frame(resultsLM.TvU) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+```
+
+### Relative Bud growth
+
+```{r rel bud growth analysis}
+
+########################################################## 
+## Linear mixed effects model on Autumn bud growth
+##########################################################
+
+# Treatment as number factor in new df
+BudGrowth.df = bud.df %>% 
+  mutate(Treatment = as.factor(ifelse(group %in% 
+c("L"),1,
+                            ifelse(group %in% c("M"),2, 
+                                ifelse(group %in% c("N"),3,
+                                   ifelse(group %in% c("O"),4, 
+                                          ifelse(group %in% c("P"),5,
+                                                 ifelse(group %in% c("Q"),6,
+                                                  ifelse(group %in% 
+c("R"), 7, 
+                                          ifelse(group %in% 
+c("S"), 8,                
+                                            ifelse(group %in% 
+c("T"),9,
+
+10
+                                      
+                                      ))))))))))) %>% 
+  group_by(Treatment, id, bud.type) %>% 
+  # calculate relative bud growth for all buds
+  summarize(RelAutGrowth = (1-(min(bud.length)/max(bud.length)))*100) %>% 
+  ungroup()
+
+# model with treatment as fixed predictor
+resultsRelAutGrowth = BudGrowth.df %>% 
+  do({model = lmer(RelAutGrowth ~ Treatment + (1|bud.type), data=.)
+  data.frame(tidy(model, effect="fixed"))})
+
+
+#Show results
+Intercept = resultsRelAutGrowth[1,]$estimate
+as.data.frame(resultsRelAutGrowth) %>%
+    mutate(term = c("Intercept", "Late_control_control", "Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/Intercept*100,
+         PercentGrowth.se = std.error/Intercept*100) %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=1)
+
+```
+
+#### Early Bud Growth only
+
+```{r bud growth early only}
+resultsRelAutGrowthEarly = BudGrowth.df %>% 
+  filter(Treatment %in% c(1,3,5,7,9)) %>% 
+  do({model = lmer(RelAutGrowth ~ Treatment + (1|bud.type), data=.)
+  data.frame(tidy(model, effect="fixed"))})
+
+
+#Show results
+InterceptEarly = resultsRelAutGrowthEarly[1,]$estimate
+
+as.data.frame(resultsRelAutGrowthEarly) %>%
+    mutate(term = c("InterceptEarly", "Early_july_Moderate", "Early_july_Extreme", "Early_august_Moderate", "Early_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptEarly*100,
+         PercentGrowth.se = std.error/InterceptEarly*100,
+         lo.timing = 'early') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+toplot.resultsRelAutGrowthEarly = as.data.frame(resultsRelAutGrowthEarly) %>%
+    mutate(term = c("InterceptEarly", "Early_july_Moderate", "Early_july_Extreme", "Early_august_Moderate", "Early_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptEarly*100,
+         PercentGrowth.se = std.error/InterceptEarly*100,
+         lo.timing = 'early') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+```
+
+#### Late Bud Growth only
+
+```{r bud growth late only}
+resultsRelAutGrowthLate = BudGrowth.df %>% 
+  filter(Treatment %in% c(2,4,6,8,10)) %>% 
+  do({model = lmer(RelAutGrowth ~ Treatment + (1|bud.type), data=.)
+  data.frame(tidy(model, effect="fixed"))})
+
+
+#Show results
+InterceptLate = resultsRelAutGrowthLate[1,]$estimate
+
+as.data.frame(resultsRelAutGrowthLate) %>%
+    mutate(term = c("InterceptLate", "Late_july_Moderate", "Late_july_Extreme", "Late_august_Moderate", "Late_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptLate*100,
+         PercentGrowth.se = std.error/InterceptLate*100,
+         lo.timing = 'late') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+toplot.resultsRelAutGrowthLate = as.data.frame(resultsRelAutGrowthLate) %>%
+    mutate(term = c("InterceptLate", "Late_july_Moderate", "Late_july_Extreme", "Late_august_Moderate", "Late_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptLate*100,
+         PercentGrowth.se = std.error/InterceptLate*100,
+         lo.timing = 'late') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+# combine early and late into one df, make term a factor and relevel
+toplot.resultsRelAutGrowth = rbind(toplot.resultsRelAutGrowthEarly, toplot.resultsRelAutGrowthLate)
+
+toplot.resultsRelAutGrowth$term = as.factor(toplot.resultsRelAutGrowth$term)
+
+toplot.resultsRelAutGrowth$term = fct_relevel(toplot.resultsRelAutGrowth$term, "InterceptEarly","InterceptLate","Early_july_Moderate","Late_july_Moderate","Early_july_Extreme","Late_july_Extreme","Early_august_Moderate","Late_august_Moderate","Early_august_Extreme","Late_august_Extreme")
+
+```
+
+### Absolute Bud Growth
+
+#### Early Abs Bud Growth
+
+```{r early abs bud growth}
+resultsAbsAutGrowthEarly = BudsSummary %>% 
+  filter(Treatment %in% c(1,3,5,7,9)) %>% 
+  do({model = lmer(diff ~ Treatment + (1|bud.type), data=.)
+  data.frame(tidy(model, effect="fixed"))})
+
+
+#Show results
+InterceptAbsEarly = resultsAbsAutGrowthEarly[1,]$estimate
+
+as.data.frame(resultsAbsAutGrowthEarly) %>%
+    mutate(term = c("InterceptAbsEarly", "Early_july_Moderate", "Early_july_Extreme", "Early_august_Moderate", "Early_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptAbsEarly*100,
+         PercentGrowth.se = std.error/InterceptAbsEarly*100,
+         lo.timing = 'early') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+toplot.resultsAbsAutGrowthEarly = as.data.frame(resultsAbsAutGrowthEarly) %>%
+    mutate(term = c("InterceptAbsEarly", "Early_july_Moderate", "Early_july_Extreme", "Early_august_Moderate", "Early_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptAbsEarly*100,
+         PercentGrowth.se = std.error/InterceptAbsEarly*100,
+         lo.timing = 'early') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+```
+
+#### Late Abs Bud Growth
+
+```{r late abs bud growth}
+resultsAbsAutGrowthLate = BudsSummary %>% 
+  filter(Treatment %in% c(2,4,6,8,10)) %>% 
+  do({model = lmer(diff ~ Treatment + (1|bud.type), data=.)
+  data.frame(tidy(model, effect="fixed"))})
+
+
+#Show results
+InterceptAbsLate = resultsAbsAutGrowthLate[1,]$estimate
+
+as.data.frame(resultsAbsAutGrowthLate) %>%
+    mutate(term = c("InterceptAbsLate", "Late_july_Moderate", "Late_july_Extreme", "Late_august_Moderate", "Late_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptAbsLate*100,
+         PercentGrowth.se = std.error/InterceptAbsLate*100,
+         lo.timing = 'late') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+toplot.resultsAbsAutGrowthLate = as.data.frame(resultsAbsAutGrowthLate) %>%
+    mutate(term = c("InterceptAbsLate", "Late_july_Moderate", "Late_july_Extreme", "Late_august_Moderate", "Late_august_Extreme")) %>% 
+  #get relative autumn growth change
+  mutate(PercentGrowthChange = estimate/InterceptAbsLate*100,
+         PercentGrowth.se = std.error/InterceptAbsLate*100,
+         lo.timing = 'late') %>% 
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+# combine early and late into one df, make term a factor and relevel
+toplot.resultsAbsAutGrowth = rbind(toplot.resultsAbsAutGrowthEarly, toplot.resultsAbsAutGrowthLate)
+
+toplot.resultsAbsAutGrowth$term = as.factor(toplot.resultsAbsAutGrowth$term)
+
+toplot.resultsAbsAutGrowth$term = fct_relevel(toplot.resultsAbsAutGrowth$term, "InterceptAbsEarly","InterceptAbsLate","Early_july_Moderate","Late_july_Moderate","Early_july_Extreme","Late_july_Extreme","Early_august_Moderate","Late_august_Moderate","Early_august_Extreme","Late_august_Extreme")
+
+```
+
+#### Bud set and abs growth relationship
+
+```{r}
+# Linear model of bud set doy predicting absolute bud growth
+AbsGrowthByEOS.model = BudsSummary %>%
+ lm(diff ~ EOS.DOY, data=.)
+```
+
+#### Bud set and total length relationship
+
+```{r}
+# Linear model of bud set doy predicting total length
+LengthByEOS.model = BudsSummary %>%
+ lm(bud.length.y ~ EOS.DOY, data=.)
+```
+
+## Publication Figures
+
+#### Bud set figures
+
+```{r bud set pub figs}
+
+## plot only Moderate cooling from combined early and late df using facet_grid spacing
+# collapse groups for facetting
+toplot.resultsLMEarlyLate2 = toplot.resultsLMEarlyLate %>% 
+  mutate(category = fct_collapse(term, 
+                                 July_Moderate = c('groupN','groupO'),
+                                 July_Extreme = c('groupP','groupQ'),
+                                 August_Moderate = c('groupR','groupS'),
+                                 August_Extreme = c('groupT','groupU')))
+
+# plot
+LMplotBudSetModerate = ggplot() + 
+  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupR", "groupS")), 
+             aes(x=term, y=estimate, color=lo.timing),
+             position=position_dodge(3))+
+  geom_errorbar(data=filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupR", "groupS")), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=lo.timing), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+  xlab("")+ylab("Bud set anomaly (days)")+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  plotTheme1 +
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+
+LMplotBudSetModerate
+#topptx(figure = LMplotBudSetModerate, filename = 'LMplotBudSetModerate.pptx')
+
+####
+# plot extreme cooling only from combined early and late df using facet_grid spacing
+LMplotBudSetExtreme = ggplot() + 
+  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(toplot.resultsLMEarlyLate2, term %in% c("groupP", "groupQ", "groupT", "groupU")), 
+             aes(x=term, y=estimate, color=lo.timing),
+             position=position_dodge(3))+
+  geom_errorbar(data=filter(toplot.resultsLMEarlyLate2, term %in% c("groupP", "groupQ", "groupT", "groupU")), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=lo.timing), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+  xlab("")+ylab("Bud set anomaly (days)")+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  plotTheme1 +
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+
+LMplotBudSetExtreme
+#topptx(figure = LMplotBudSetExtreme, filename = 'LMplotBudSetExtreme.pptx')
+ ################################################################
+
+################################
+# plot from combined early and late df using facet_grid spacing
+# collapse groups for facetting
+
+# plot
+LMplotBudSet2 = ggplot() + 
+  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupP", "groupQ", "groupR", "groupS", "groupT", "groupU")), 
+             aes(x=term, y=estimate, color=lo.timing),
+             position=position_dodge(3))+
+  geom_errorbar(data=filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupP", "groupQ", "groupR", "groupS", "groupT", "groupU")), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=lo.timing), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+  xlab("")+ylab("Bud set anomaly (days)")+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  plotTheme1 +
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+
+LMplotBudSet2
+#topptx(figure = LMplotBudSet2, filename = 'LMplotBudSet2.pptx')
+################################
+
+## Early and late treatment pairs e.g. early_control_control vs late_control_control
+# LvsM
+LMplot90.LvM = ggplot() + 
+  scale_color_manual(values = 'dodgerblue3')+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(resultsLM.LvM, term %in% c('groupM')), 
+             aes(x=term, y=estimate, color=term))+
+  geom_errorbar(data=filter(resultsLM.LvM, term %in% c('groupM')), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+   scale_x_discrete(labels = 'Control') +
+  xlab("")+ylab("Bud set anomaly (days)")+
+  plotTheme1 +
+   theme(legend.position = 0, panel.border = element_blank())
+
+LMplot90.LvM
+
+# NvsO
+LMplot90.NvO = ggplot() + 
+ scale_color_manual(values = 'dodgerblue3')+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(resultsLM.NvO, term %in% c('groupO')), 
+             aes(x=term, y=estimate, color=term))+
+  geom_errorbar(data=filter(resultsLM.NvO, term %in% c('groupO')), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+  scale_x_discrete(labels = 'July_Moderate') +
+  xlab("")+ylab("")+
+  plotTheme1 +
+   theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+
+LMplot90.NvO
+
+# PvsQ
+LMplot90.PvQ = ggplot() + 
+ scale_color_manual(values = 'dodgerblue3')+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(resultsLM.PvQ, term %in% c('groupQ')), 
+             aes(x=term, y=estimate, color=term))+
+  geom_errorbar(data=filter(resultsLM.PvQ, term %in% c('groupQ')), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+  scale_x_discrete(labels = 'July_Extreme') +
+  xlab("")+ylab("")+
+  plotTheme1 +
+   theme(legend.position = 0) +theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+
+LMplot90.PvQ
+
+# RvsS
+LMplot90.RvS = ggplot() + 
+ scale_color_manual(values = 'dodgerblue3')+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(resultsLM.RvS, term %in% c('groupS')), 
+             aes(x=term, y=estimate, color=term))+
+  geom_errorbar(data=filter(resultsLM.RvS, term %in% c('groupS')), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+  scale_x_discrete(labels = 'August_Moderate') +
+  xlab("")+ylab("")+
+  plotTheme1 +
+   theme(legend.position = 0) +
+  theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+
+LMplot90.RvS
+
+# TvsU
+LMplot90.TvU = ggplot() + 
+ scale_color_manual(values = 'dodgerblue3')+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(resultsLM.TvU, term %in% c('groupU')), 
+             aes(x=term, y=estimate, color=term))+
+  geom_errorbar(data=filter(resultsLM.TvU, term %in% c('groupU')), 
+                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-10,10))+
+    scale_x_discrete(labels = 'August_Extreme') +
+  xlab("")+ylab("")+
+  plotTheme1 +
+   theme(legend.position = 0) +
+  theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+
+LMplot90.TvU
+################################
+
+# bud set by leaf-out timing boxplot
+ lo.eos.boxplot = 
+BudsSummary %>% ggplot(aes(lo.timing, EOS, fill = lo.timing)) + 
+  geom_boxplot(notch = T) + 
+  scale_fill_manual(values = c('grey70','dodgerblue3')) +
+   xlab('')+ylab("Bud set date") +
+  plotTheme1 + theme(legend.position = 0)
+  # ggtitle('Leaf-out timing')
+
+ lo.eos.boxplot
+
+#######################################
+## Save plots
+#######################################
+
+# Early vs Late budset boxplot
+#topptx(figure = lo.eos.boxplot, filename = 'early_vs_late_boxplot.pptx')
+
+# Merge separated bud set anomaly plots with each late treatment compared to its respective early treatment as well as early vs late boxplot
+######################################################################################
+
+#Merge anomaly plots
+#define plot layout
+layout2 <- "ABCDE"
+
+CombinedBudSepPlotEarlyLate2 = LMplot90.LvM + LMplot90.NvO + LMplot90.PvQ + LMplot90.RvS + LMplot90.TvU +
+  plot_layout(design = layout2, tag_level = 'new')
+# plot_annotation(tag_levels = list(c('','','','','')))&
+ # theme(plot.tag = element_text(face = 'bold'))
+  
+#topptx(figure= CombinedBudSepPlotEarlyLate2, filename = 'CombinedBudSepPlotEarlyLate2.pptx')
+
+#Save PDF
+#pdf("/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/CombinedBudSepPlotEarlyLate2.pdf", useDingbats=FALSE)
+#CombinedBudSepPlotEarlyLate2 
+#dev.off()
+
+```
+
+#### Relative Bud growth figures
+
+```{r}
+# Bud length curves
+###################
+
+#move points .05 to the left and right
+pd = position_dodge(2) 
+
+
+# Relative bud length
+RelBudLength_curve = bud.df %>%
+  mutate(Treatment = factor(group, 
+  levels=c("L", "M", "N", "O", "P", "Q", "R", "S", "T", "U"))) %>% 
+  ggplot(aes(x=measurement.date, y=bud.rel*100, colour=Treatment, group=Treatment)) +
+  
+  geom_hline(yintercept = 20, colour="lightgrey")+
+  geom_hline(yintercept = 30, colour="lightgrey")+
+  geom_hline(yintercept = 40, colour="lightgrey")+
+  geom_hline(yintercept = 50, colour="lightgrey")+
+  geom_hline(yintercept = 60, colour="lightgrey")+
+  geom_hline(yintercept = 70, colour="lightgrey")+
+  geom_hline(yintercept = 80, colour="lightgrey")+
+  geom_hline(yintercept = 90, colour="lightgrey")+
+  geom_hline(yintercept = 100, colour="lightgrey")+
+  
+  geom_vline(xintercept = as.Date('2023-11-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-10-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-09-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-08-01'), colour="lightgrey")+
+  
+  stat_summary(fun.data = "mean_se", geom="line", size = 1.2, position=pd, alpha=0.7) +
+  stat_summary(fun.data = "mean_se", geom="errorbar", size = 0.8, width=0, position=pd) +
+  stat_summary(fun.data = "mean_se", geom="point", size = 1.2, position=pd) +
+  
+  scale_color_manual(values = budpal)+
+  
+  coord_cartesian(ylim=c(20,100),xlim=c(as.Date(c('2023-07-04','2023-11-02'))))+
+  
+  xlab("") +
+  ylab("Relative bud length (%)") +
+  
+  #ggtitle("Relative bud growth")+
+  
+  plotTheme1
+
+RelBudLength_curve
+
+#####################################################################
+## plot from combined early and late df using facet_grid spacing
+# collapse groups for facetting
+toplot.resultsRelAutGrowth = toplot.resultsRelAutGrowth %>% 
+  mutate(category = fct_collapse(term, 
+                  July_Moderate = c('Early_july_Moderate','Late_july_Moderate'),
+                  July_Extreme = c('Early_july_Extreme','Late_july_Extreme'),
+                  August_Moderate = c('Early_august_Moderate','Late_august_Moderate'),
+                  August_Extreme = c('Early_august_Extreme','Late_august_Extreme')))
+
+# plot
+LMplotRelAutGrowth2 = ggplot() + 
+  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(toplot.resultsRelAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
+             aes(x=term, y=PercentGrowthChange, color=lo.timing),
+             position=position_dodge(3))+
+  geom_errorbar(data=filter(toplot.resultsRelAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
+                aes(x=term, ymin=PercentGrowthChange+1.96*PercentGrowth.se, ymax=PercentGrowthChange-1.96*PercentGrowth.se, color=lo.timing), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-20,10))+
+  xlab("")+ylab("Relative bud growth anomaly (%)")+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  plotTheme1 +
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+
+LMplotRelAutGrowth2
+#topptx(figure = LMplotRelAutGrowth2, filename = 'LMplotRelAutGrowth2.pptx')
+
+```
+
+#### Absolute Bud Growth figures
+
+```{r abs bud growth figures}
+
+## plot from combined early and late df using facet_grid spacing
+# collapse groups for facetting
+toplot.resultsAbsAutGrowth = toplot.resultsAbsAutGrowth %>% 
+  mutate(category = fct_collapse(term, 
+                  July_Moderate = c('Early_july_Moderate','Late_july_Moderate'),
+                  July_Extreme = c('Early_july_Extreme','Late_july_Extreme'),
+                  August_Moderate = c('Early_august_Moderate','Late_august_Moderate'),
+                  August_Extreme = c('Early_august_Extreme','Late_august_Extreme')))
+
+# plot
+LMplotAbsAutGrowth2 = ggplot() + 
+  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(toplot.resultsAbsAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
+             aes(x=term, y=PercentGrowthChange, color=lo.timing),
+             position=position_dodge(3))+
+  geom_errorbar(data=filter(toplot.resultsAbsAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
+                aes(x=term, ymin=PercentGrowthChange+1.96*PercentGrowth.se, ymax=PercentGrowthChange-1.96*PercentGrowth.se, color=lo.timing), 
+                width=.2, position=position_dodge(.9)) +
+  coord_cartesian(ylim=c(-40,10))+
+  xlab("")+ylab("Absolute bud growth anomaly (%)")+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  plotTheme1 +
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+
+LMplotAbsAutGrowth2
+#topptx(figure = LMplotAbsAutGrowth2, filename = 'LMplotAbsAutGrowth2.pptx')
+
+
+#########################################
+
+# PLOT bud set timing ~ Abs Bud Growth
+ggplot(BudsSummary, aes(EOS.DOY,diff)) +
+ stat_poly_line() +
+  stat_poly_eq(use_label("eq")) +
+  stat_poly_eq(label.y = 0.9) +
+  geom_point()+
+  ylab('Absolute bud growth (mm)')+xlab('Bud set DOY')+
+  plotTheme1 + 
+  theme(axis.text = element_text(size = 13),
+        axis.title = element_text(size = 14))
+#ggsave('/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/buds/AbsGrowthByBudSet.pdf', height = 7, width = 10)
+
+```
+
+### Bud length
+
+```{r bud length}
+
+# PLOT total length ~ bud set timing
+ggplot(BudsSummary, aes(EOS.DOY,bud.length.y)) +
+ stat_poly_line() +
+  stat_poly_eq(use_label("eq")) +
+  stat_poly_eq(label.y = 0.9) +
+  geom_point()+
+  ylab('Final bud length (mm)')+xlab('Bud set DOY')+
+  plotTheme1 + 
+  theme(axis.text = element_text(size = 13),
+        axis.title = element_text(size = 14))
+#ggsave('/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/buds/FinalLengthByBudSet.pdf', height = 7, width = 10)
+
+
+# plot relative bud length for all individs
+individ.relbud.curves = bud.df %>% ggplot(
+  aes(x=measurement.date,y=bud.rel*100,colour = group, fill = group)) +
+  
+  geom_vline(xintercept = as.Date('2023-11-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-10-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-09-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-08-01'), colour="lightgrey")+
+  geom_vline(xintercept = as.Date('2023-07-01'), colour="lightgrey")+
+  
+  geom_hline(yintercept = 90, colour="lightgrey")+
+
+  
+  geom_line(aes(x=measurement.date, y=bud.rel*100, group = bud.type), color="black")+
+  geom_point()+
+  
+  geom_vline(data=BudsSummary, 
+             aes(xintercept = EOS), linetype = "dashed", colour = 'blue')+
+  
+  coord_cartesian(ylim=c(4,110),xlim=c(as.Date(c('2023-07-02','2023-11-04'))))+
+  
+  xlab("Date") +
+  ylab("Relative bud length (%)") +
+    facet_wrap(~id, dir='v', nrow = 15) +
+    plotTheme1 +
+  theme(legend.position = 0)
+  
+individ.relbud.curves
+  #Save PDF
+#ggsave('/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/individ_relbud_curves.pdf', height = 40, width = 40)
+  
+
+```

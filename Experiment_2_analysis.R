@@ -4,7 +4,7 @@
 # Development underpins the summer solstice reversal of the effects of climate warming on the autumn phenology of European beech
 # Rebindaine et al. (2024)
 # Dominic Rebindaine
-# Last edited: 18/09/2024
+# Last edited: 29/10/2024
 ###########################################################################################################################################
 
 #####################
@@ -316,150 +316,97 @@ resultsAbsAutGrowth = BudsSummary %>%
 # Bud set dates
 ###############
 
-## all
 
-LMplot90 = ggplot() + 
-  scale_color_manual(values = c(rep('#F21A00',3), rep('#3B9AB2',3)))+
-  geom_hline(yintercept=0)+
-  geom_point(data=resultsLM, aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=resultsLM, 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=3.5, size=2, alpha=0.4)+
-  coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Pre_day','Pre_night', 'Pre_full','Post_day', 'Post_night', 'Post_full'))+
-  plotTheme1
+# Night-Full-Day order mirrored across y = 0
+################################################
 
-LMplot90
-
-## full cooling
-
-LMplot90.full = ggplot() + 
-  scale_color_manual(values = c('#F21A00', '#3B9AB2'))+
-  geom_hline(yintercept=0)+
-  geom_point(data= filter(resultsLM, term %in% c('TreatmentPre_full', 'TreatmentPost_full')),
-             aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPre_full', 'TreatmentPost_full')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=1.5, size=2, alpha=0.4)+
-  coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Pre','Post'))+
-  plotTheme1 +
-  ggtitle('Full cooling')
-
-LMplot90.full
-
-## Day cooling
-
-LMplot90.day = ggplot() + 
-  scale_color_manual(values = c('#F21A00', '#3B9AB2'))+
-  geom_hline(yintercept=0)+
-  geom_point(data= filter(resultsLM, term %in% c('TreatmentPre_day', 'TreatmentPost_day')), aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPre_day', 'TreatmentPost_day')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=1.5, size=2, alpha=0.4)+
-  coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Pre','Post'))+
-  plotTheme1 +
-  ggtitle('Day cooling') +
-  theme(axis.title.y=element_blank(),
-        axis.text.y=element_blank())
-
-LMplot90.day
-
-## Night cooling
-
-LMplot90.night = ggplot() + 
-  scale_color_manual(values = c('#F21A00', '#3B9AB2'))+
-  geom_hline(yintercept=0)+
-  geom_point(data= filter(resultsLM, term %in% c('TreatmentPre_night', 'TreatmentPost_night')), aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPre_night', 'TreatmentPost_night')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=1.5, size=2, alpha=0.4)+
-  coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Pre','Post'))+
-  plotTheme1 +
-  ggtitle('Night cooling') +
-  theme(axis.title.y=element_blank(),
-        axis.text.y=element_blank())
-
-LMplot90.night
+# relevel resultsLM terms
+resultsLM$term = fct_relevel(resultsLM$term, 'TreatmentPre_night', 'TreatmentPre_full', 'TreatmentPre_day', 
+                             'TreatmentPost_night','TreatmentPost_full', 'TreatmentPost_day')
 
 ## Pre-solstice cooling
 
-LMplot90.pre = ggplot() + 
+LMplot90.pre2 = ggplot() + 
   scale_color_manual(values = c('#F21A00', '#F21A00','#F21A00'))+
   geom_hline(yintercept=0)+
-  geom_point(data= filter(resultsLM, term %in% c('TreatmentPre_day', 'TreatmentPre_night','TreatmentPre_full')), 
-             aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPre_day', 'TreatmentPre_night','TreatmentPre_full')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+  geom_point(data= filter(resultsLM, term %in% c('TreatmentPre_night', 'TreatmentPre_full', 'TreatmentPre_day')), 
+             aes(x=term, y=estimate*-1, color=term), size = 3.5)+
+  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPre_night', 'TreatmentPre_full', 'TreatmentPre_day')), 
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), size = 1, 
                 width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=1.5, size=2, alpha=0.4)+
-  geom_vline(xintercept=2.5, size=2, alpha=0.4)+
   coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Day','Night', 'Full'))+
+  xlab("")+ylab("Bud set advancement (days)")+
+  scale_x_discrete(labels = c('Night','Full', 'Day'))+
   plotTheme1 +
   ggtitle('Pre-solstice cooling')
 
-LMplot90.pre
+LMplot90.pre2
 
 ## Post-solstice cooling
 
-LMplot90.post = ggplot() + 
+LMplot90.post2 = ggplot() + 
   scale_color_manual(values = c('#3B9AB2', '#3B9AB2','#3B9AB2'))+
   geom_hline(yintercept=0)+
-  geom_point(data= filter(resultsLM, term %in% c('TreatmentPost_day', 'TreatmentPost_night','TreatmentPost_full')), 
-             aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPost_day', 'TreatmentPost_night','TreatmentPost_full')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
+  geom_point(data= filter(resultsLM, term %in% c('TreatmentPost_night', 'TreatmentPost_full', 'TreatmentPost_day')), 
+             aes(x=term, y=estimate*-1, color=term), size = 3.5)+
+  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPost_night', 'TreatmentPost_full', 'TreatmentPost_day')), 
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), size = 1,
                 width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=1.5, size=2, alpha=0.4)+
-  geom_vline(xintercept=2.5, size=2, alpha=0.4)+
   coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Day','Night', 'Full'))+
+  xlab("")+ylab("Bud set advancement (days)")+
+  scale_x_discrete(labels = c('Night','Full', 'Day'))+
   plotTheme1 +
   ggtitle('Post-solstice cooling') +
   theme(axis.title.y=element_blank(),
         axis.text.y=element_blank())
-LMplot90.post
+
+LMplot90.post2
 
 # Relative bud growth anomaly
 #############################
 
-## all
+# relevel resultsRelAutGrowth terms
+resultsRelAutGrowth$term = fct_relevel(resultsRelAutGrowth$term, 'TreatmentPre_night', 'TreatmentPre_full', 'TreatmentPre_day', 
+                             'TreatmentPost_night','TreatmentPost_full', 'TreatmentPost_day')
 
-LMplotRelAutGrowth = ggplot() + 
-  scale_color_manual(values = c(rep('#F21A00',3), rep('#3B9AB2',3)))+
+## Pre-solstice cooling
+
+LMplotRelGrowthPre = ggplot() + 
+  scale_color_manual(values = c('#F21A00', '#F21A00','#F21A00'))+
   geom_hline(yintercept=0)+
-  geom_point(data=resultsRelAutGrowth, aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=resultsRelAutGrowth, aes(x=term, ymin=estimate-1.96*std.error, ymax=estimate+1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
-  
-  geom_vline(xintercept=3.5, size=2, alpha=0.4)+
-  coord_cartesian(ylim=c(-15,10))+
+  geom_point(data= filter(resultsRelAutGrowth, term %in% c('TreatmentPre_night', 'TreatmentPre_full', 'TreatmentPre_day')), 
+             aes(x=term, y=estimate, color=term), size = 3.5)+
+  geom_errorbar(data=filter(resultsRelAutGrowth, term %in% c('TreatmentPre_night', 'TreatmentPre_full', 'TreatmentPre_day')), 
+                aes(x=term, ymin=estimate-1.96*std.error, ymax=estimate+1.96*std.error, color=term), 
+                width=.2, size = 1.5) +
+  coord_cartesian(ylim=c(-10,10))+
   xlab("")+ylab("Relative bud growth anomaly (%)")+
-  scale_x_discrete(label =c('Pre_day','Pre_night', 'Pre_full','Post_day', 'Post_night', 'Post_full'))+
-  plotTheme1
+  scale_x_discrete(labels = c('Night','Full-day', 'Day'))+
+  plotTheme1 +
+  ggtitle('Pre-solstice cooling')
 
-LMplotRelAutGrowth 
+LMplotRelGrowthPre
 
-#ggsave(filename = "RelBudGrowthExp2.pdf", path = output.dir, plot = LMplotRelAutGrowth)
+## Post-solstice cooling
+
+LMplotRelGrowthPost = ggplot() + 
+  scale_color_manual(values = c('#3B9AB2', '#3B9AB2','#3B9AB2'))+
+  geom_hline(yintercept=0)+
+  geom_point(data= filter(resultsLM, term %in% c('TreatmentPost_night', 'TreatmentPost_full', 'TreatmentPost_day')), 
+             aes(x=term, y=estimate, color=term), size = 3.5)+
+  geom_errorbar(data=filter(resultsLM, term %in% c('TreatmentPost_night', 'TreatmentPost_full', 'TreatmentPost_day')), 
+                aes(x=term, ymin=estimate-1.96*std.error, ymax=estimate+1.96*std.error, color=term),
+                width=.2, size = 1.5) +
+  coord_cartesian(ylim=c(-10,10))+
+  xlab("")+ylab("Relative bud growth anomaly (%)")+
+  scale_x_discrete(labels = c('Night','Full-day', 'Day'))+
+  plotTheme1 +
+  ggtitle('Post-solstice cooling') +
+  theme(axis.title.y=element_blank(),
+        axis.text.y=element_blank())
+
+LMplotRelGrowthPost
+
 
 # Absolute bud growth anomaly
 #############################
@@ -729,92 +676,40 @@ AbsBudGrowth_curve = bud.df %>%
 
 AbsBudGrowth_curve
 
-## Bud set anomaly Pre only full-night-day order
-LMplot90.AC = ggplot() + 
-  scale_color_manual(values = c(rep('#F21A00',3)))+
-  geom_hline(yintercept=0)+
-  geom_point(data=resultsLM %>% filter(term %in% c('TreatmentPre_day','TreatmentPre_night','TreatmentPre_full')), aes(x=term, y=estimate, color=term))+
-  geom_errorbar(data=resultsLM%>% filter(term %in% c('TreatmentPre_day','TreatmentPre_night','TreatmentPre_full')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
-  coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  scale_x_discrete(labels = c('Day','Night', 'Full'))+
-  plotTheme1 +
-  theme(axis.title = element_text(size = 14), axis.text = element_text(size = 13))
-
-LMplot90.AC
-
-#ggsave(filename = 'Pre_only.png', path = '/Users/dominic/Documents/Crowther/admin/PhD/AC', plot = LMplot90.AC, height = 5, width = 7)
 
 # Merge plots
 #####################
 
-#define plot layout
-layout <- "
-ACC
-BDD"
 
-#Merge plots
-CombinedPlot =  LMplotRelGrowth + LMplot90+ RelBudLength_curve + AbsBudLength_curve +
-  plot_layout(design = layout) + plot_annotation(tag_levels = c('A')) &
-  theme(plot.tag = element_text(face = 'bold'))
-
-#Save PDF
-#pdf(paste(output.dir,"CombinedPlot_Experiment2.pdf",sep="/"), width=7, height=7, useDingbats=FALSE)
-#CombinedPlot 
-#dev.off()
-
-
-# Merge separated bud set anomaly plots
-#######################################
-
-#define plot layout
-layout2 <- "
-ABC"
-
-#Merge plots
-CombinedBudSepPlot =  LMplot90.full + LMplot90.day + LMplot90.night +
-  plot_layout(design = layout2, tag_level = 'new') + plot_annotation(tag_levels = list(c('','','')))&
-  theme(plot.tag = element_text(face = 'bold'), axis.title = element_text(size = 22), 
-        axis.text = element_text(size = 18))
-
-#Save PDF
-#pdf(paste(output.dir,"CombinedBudSepPlot.pdf",sep="/"), width=7, height=7, useDingbats=FALSE)
-#CombinedBudSepPlot 
-#dev.off()
-
-# Merge pre- and post plots
-############################
+# Merge Night-Full-Day pre- and post plots
+#############################################
 
 # #define plot layout
-layout3 <- "
+layout <- "
 AB"
 
-#Merge plots
-CombinedBudSepPlotPre_Post =  LMplot90.pre + LMplot90.post +
-  plot_layout(design = layout3, tag_level = 'new') + plot_annotation(tag_levels = list(c('','','')))&
-  theme(plot.tag = element_text(face = 'bold'), axis.title = element_text(size = 22), 
+CombinedBudSepPlotPre_Post_NFD =  LMplot90.pre2 + LMplot90.post2 +
+  plot_layout(design = layout, tag_level = 'new') + plot_annotation(tag_levels = list(c('','','')))&
+  theme(plot.tag = element_text(face = 'bold'), axis.title = element_text(size = 22), plot.title = element_text(size = 22),
         axis.text = element_text(size = 18))
 
 #Save PDF
-#pdf(paste(output.dir,"CombinedBudSepPlotPre_Post.pdf",sep="/"), width=7, height=7, useDingbats=FALSE)
-#CombinedBudSepPlotPre_Post 
+#pdf(paste(output.dir,"CombinedBudSepPlotPre_Post_NFD_flipped.pdf",sep="/"), width=8, height=6, useDingbats=FALSE)
+#CombinedBudSepPlotPre_Post_NFD
 #dev.off()
 
 # Merge separated bud growth anomaly plots
 ##########################################
 
-#Merge plots
-CombinedRelBudGroSepPlot =  LMplotRelGrowth.full + LMplotRelGrowth.day + LMplotRelGrowth.night +
-  plot_layout(design = layout2, tag_level = 'new') + plot_annotation(tag_levels = list(c('D','',''))) &
-  theme(plot.tag = element_text(face = 'bold'))
+CombinedRelGroPlotPre_Post_NFD =  LMplotRelGrowthPre + LMplotRelGrowthPost +
+  plot_layout(design = layout, tag_level = 'new') + plot_annotation(tag_levels = list(c('','','')))&
+  theme(plot.tag = element_text(face = 'bold'), axis.title = element_text(size = 22), plot.title = element_text(size = 22),
+        axis.text = element_text(size = 18))
 
 #Save PDF
-#pdf(paste(output.dir,"CombinedRelBudGroSepPlot.pdf",sep="/"), width=7, height=7, useDingbats=FALSE)
-#CombinedRelBudGroSepPlot 
+#pdf(paste(output.dir,"CombinedRelGroPlotPre_Post_NFD.pdf",sep="/"), width=8, height=6, useDingbats=FALSE)
+#CombinedRelGroPlotPre_Post_NFD
 #dev.off()
-
 
 # Merge bud length curves
 #################################################

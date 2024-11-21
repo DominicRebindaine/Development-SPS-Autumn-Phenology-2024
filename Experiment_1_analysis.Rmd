@@ -1,7 +1,7 @@
 ---
-title: "Rebindaine et al. (2024)"
+title: "Development underpins the summer solstice reversal of the effects of climate warming on the autumn phenology of European beech"
 author: "Dominic Rebindaine"
-date: "2024-09-18"
+date: "2024-11-21"
 output: html_document
 ---
 
@@ -186,15 +186,10 @@ over90start = bud.df %>%
   
   budpal = c('#a6cee3','#1f78b4','#b2df8a','#33a02c','#fb9a99','#e31a1c','#fdbf6f','#ff7f00','#cab2d6','#6a3d9a')
   
-# mean bud length over time for each treatment group coloured by treatment
-sum_buds %>% ggplot(aes(measurement.date, bud.length_mean, group = group, colour = group)) +
-  geom_line() +
-  scale_colour_manual(values = budpal) +
-  plotTheme1
 
 ```
 
-### EOS derivation
+### EOS (bud set timing) derivation
 
 ```{r EOS}
 
@@ -246,31 +241,26 @@ BudsSummary = BudsSummary %>%
                                    ifelse(group %in% c('R','S','T','U'), 'August', 'Control')),
     cooling.level = ifelse(group %in% c('N','O','R','S'), 'Moderate',
                                 ifelse(group %in% c('P','Q','T','U'), 'Extreme', 'Control')),
-    cooling = ifelse(cooling.level %in% c('Moderate','Extreme'),'Yes','No'),
-    # another column to combine Moderate and Extreme cooling into one treatment group
-    cooling.combined = ifelse(group %in% c('N','P'),'early.july',
-    ifelse(group %in% c('O','Q'), 'late.july',
-      ifelse(group %in% c('R','T'), 'early.aug',
-             ifelse(group %in% c('S','U'), 'late.aug',
-                    ifelse(group %in% c('M'), 'late.control', 'early.control'))))))
+    # add another column to combine treatment.timing and cooling.level
+    treat.cool.combined = paste(treatment.timing, cooling.level,sep = "."))
 
-#write_csv(BudsSummary, file = '/Users/dominic/Documents/Crowther/r/phen_exp_2023/data/BudsSummary.csv')
 
 ######### factorise and relevel predictors
 
 # leaf-out timing
 BudsSummary$lo.timing = as.factor(BudsSummary$lo.timing)
+
 # treatment timing
 BudsSummary$treatment.timing = as.factor(BudsSummary$treatment.timing)
 BudsSummary$treatment.timing = fct_relevel(BudsSummary$treatment.timing, 'Control', 'July')
+
 # cooling level
 BudsSummary$cooling.level = as.factor(BudsSummary$cooling.level)
 BudsSummary$cooling.level = fct_relevel(BudsSummary$cooling.level, 'Control', 'Moderate')
-# cooling
-BudsSummary$cooling = as.factor(BudsSummary$cooling)
-# cooling.combined
-BudsSummary$cooling.combined = as.factor(BudsSummary$cooling.combined)
-BudsSummary$cooling.combined = fct_relevel(BudsSummary$cooling.combined, 'early.control', 'late.control', 'early.july', 'late.july', 'early.aug', 'late.aug')
+
+# treat.cool.combined
+BudsSummary$treat.cool.combined = as.factor(BudsSummary$treat.cool.combined)
+BudsSummary$treat.cool.combined = fct_relevel(BudsSummary$treat.cool.combined, 'Control.Control', 'July.Moderate', 'July.Extreme', 'August.Moderate', 'August.Extreme')
 ```
 
 ### EOS Analysis
@@ -467,9 +457,47 @@ as.data.frame(resultsLM.TvU) %>%
 
 ```
 
+#### Days of autumn delay per day of spring delay
+
+```{r days per day}
+
+##################################################################################
+## Linear mixed effects model on Autumn bud set change per day change in leaf-out
+##################################################################################
+
+## Leaf-out doy as fixed predictor variable with treatment combination (timing plus cooling level) as a random variable
+resultsLM.LOD = BudsSummary %>% 
+  do({model = lme4::lmer(EOS.DOY ~ lo.doy + (1|bud.type) + (1|treat.cool.combined), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+  mutate(SEx2 = std.error*2)
+
+#Show results
+as.data.frame(resultsLM.LOD) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+
+## Only using control treatments
+resultsLM.LOD.Control = BudsSummary %>% filter(group %in% c('L','M')) %>% 
+  do({model = lme4::lmer(EOS.DOY ~ lo.doy + (1|bud.type), data=.)  # create the model
+  data.frame(tidy(model, effect="fixed"))}) %>%
+  filter(!term %in% c("(Intercept)")) %>% 
+  mutate(SEx2 = std.error*2)
+
+#Show results
+as.data.frame(resultsLM.LOD.Control) %>%
+  dplyr::select(-c(statistic))%>%
+  mutate_if(is.numeric, round, digits=2)
+
+
+```
+
 ### Relative Bud growth
 
-```{r rel bud growth analysis}
+#### Setup
+
+```{r rel bud growth setup}
 
 ########################################################## 
 ## Linear mixed effects model on Autumn bud growth
@@ -498,6 +526,12 @@ c("T"),9,
   # calculate relative bud growth for all buds
   summarize(RelAutGrowth = (1-(min(bud.length)/max(bud.length)))*100) %>% 
   ungroup()
+
+```
+
+#### All treatments
+
+```{r rel bud growth analysis}
 
 # model with treatment as fixed predictor
 resultsRelAutGrowth = BudGrowth.df %>% 
@@ -659,7 +693,7 @@ toplot.resultsAbsAutGrowth$term = fct_relevel(toplot.resultsAbsAutGrowth$term, "
 
 ```
 
-#### Bud set and abs growth relationship
+#### Bud set and absolute growth relationship
 
 ```{r}
 # Linear model of bud set doy predicting absolute bud growth
@@ -681,7 +715,7 @@ LengthByEOS.model = BudsSummary %>%
 
 ```{r bud set pub figs}
 
-## plot only Moderate cooling from combined early and late df using facet_grid spacing
+## plot only Moderate cooling from combined early and late df using facet_grid spacing with points flipped over y = 0
 # collapse groups for facetting
 toplot.resultsLMEarlyLate2 = toplot.resultsLMEarlyLate %>% 
   mutate(category = fct_collapse(term, 
@@ -692,57 +726,74 @@ toplot.resultsLMEarlyLate2 = toplot.resultsLMEarlyLate %>%
 
 # plot
 LMplotBudSetModerate = ggplot() + 
-  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  scale_color_manual(values = c('#48b649','#2964af'), name = 'Leaf-out timing')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupR", "groupS")), 
-             aes(x=term, y=estimate, color=lo.timing),
+             aes(x=term, y=-1*estimate, color=lo.timing), size = 3.5,
              position=position_dodge(3))+
   geom_errorbar(data=filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupR", "groupS")), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=lo.timing), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=lo.timing), 
+                width=.2, size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  xlab("")+ylab("Bud set advancement (days)")+
+  
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x', switch = 'x')+
   plotTheme1 +
-  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
-
-LMplotBudSetModerate
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+        axis.text = element_text(size = 20), axis.title = element_text(size = 22),
+        strip.text.x = element_text(size = 22), strip.placement = 'outside',
+        legend.position = c(.82, .18), legend.title = element_text(size = 20), legend.text = element_text(size = 20)
+       )
 #topptx(figure = LMplotBudSetModerate, filename = 'LMplotBudSetModerate.pptx')
+ 
+#Save PDF
+#ggsave(filename = "Fig2b_moderate_flipped.pdf", plot = LMplotBudSetModerate, path = output.path, width = 7, height = 6, useDingbats=FALSE)
+
 
 ####
-# plot extreme cooling only from combined early and late df using facet_grid spacing
+# plot extreme cooling only from combined early and late df using facet_grid spacing with points flipped over y = 0
+
 LMplotBudSetExtreme = ggplot() + 
-  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  scale_color_manual(values = c('#48b649','#2964af'), name = 'Leaf-out timing')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(toplot.resultsLMEarlyLate2, term %in% c("groupP", "groupQ", "groupT", "groupU")), 
-             aes(x=term, y=estimate, color=lo.timing),
+             aes(x=term, y=-1*estimate, color=lo.timing), size = 3.5,
              position=position_dodge(3))+
   geom_errorbar(data=filter(toplot.resultsLMEarlyLate2, term %in% c("groupP", "groupQ", "groupT", "groupU")), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=lo.timing), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=lo.timing), 
+                width=.2, size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
-  xlab("")+ylab("Bud set anomaly (days)")+
-  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  xlab("")+ylab("Bud set advancement (days)")+
+  
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x', switch = 'x')+
   plotTheme1 +
-  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+        axis.text = element_text(size = 20), axis.title = element_text(size = 22),
+        strip.text.x = element_text(size = 22), strip.placement = 'outside',
+        legend.position = c(.82, .18), legend.title = element_text(size = 20), legend.text = element_text(size = 20)
+       )
 
 LMplotBudSetExtreme
+
 #topptx(figure = LMplotBudSetExtreme, filename = 'LMplotBudSetExtreme.pptx')
+#Save PDF
+#ggsave(filename = "SuppFig_extreme_flipped.pdf", plot = LMplotBudSetExtreme, path = output.path, width = 7, height = 6, useDingbats=FALSE)
+
  ################################################################
 
 ################################
-# plot from combined early and late df using facet_grid spacing
+# plot from all treatments from combined early and late df using facet_grid spacing
 # collapse groups for facetting
 
 # plot
 LMplotBudSet2 = ggplot() + 
-  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  scale_color_manual(values = c('#48b649','#2964af'))+
   geom_hline(yintercept=0)+
   geom_point(data= filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupP", "groupQ", "groupR", "groupS", "groupT", "groupU")), 
              aes(x=term, y=estimate, color=lo.timing),
              position=position_dodge(3))+
   geom_errorbar(data=filter(toplot.resultsLMEarlyLate2, term %in% c("groupN", "groupO", "groupP", "groupQ", "groupR", "groupS", "groupT", "groupU")), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=lo.timing), 
+                aes(x=term, ymin=estimate-1.96*std.error, ymax=estimate+1.96*std.error, color=lo.timing), 
                 width=.2, position=position_dodge(.9)) +
   coord_cartesian(ylim=c(-10,10))+
   xlab("")+ylab("Bud set anomaly (days)")+
@@ -760,15 +811,15 @@ LMplot90.LvM = ggplot() +
   scale_color_manual(values = 'dodgerblue3')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(resultsLM.LvM, term %in% c('groupM')), 
-             aes(x=term, y=estimate, color=term))+
+             aes(x=term, y=estimate*-1, color=term),size = 3.5,)+
   geom_errorbar(data=filter(resultsLM.LvM, term %in% c('groupM')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), 
+                width=.2, size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
    scale_x_discrete(labels = 'Control') +
-  xlab("")+ylab("Bud set anomaly (days)")+
+  xlab("")+ylab("Bud set advancement (days)")+
   plotTheme1 +
-   theme(legend.position = 0, panel.border = element_blank())
+   theme(legend.position = 0, panel.border = element_blank(), axis.text = element_text(size = 18), axis.title.y = element_text(size = 20))
 
 LMplot90.LvM
 
@@ -777,15 +828,15 @@ LMplot90.NvO = ggplot() +
  scale_color_manual(values = 'dodgerblue3')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(resultsLM.NvO, term %in% c('groupO')), 
-             aes(x=term, y=estimate, color=term))+
+             aes(x=term, y=estimate*-1, color=term),size = 3.5)+
   geom_errorbar(data=filter(resultsLM.NvO, term %in% c('groupO')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), 
+                width=.2, size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
   scale_x_discrete(labels = 'July_Moderate') +
   xlab("")+ylab("")+
   plotTheme1 +
-   theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+   theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank(), axis.text = element_text(size = 18))
 
 LMplot90.NvO
 
@@ -794,15 +845,15 @@ LMplot90.PvQ = ggplot() +
  scale_color_manual(values = 'dodgerblue3')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(resultsLM.PvQ, term %in% c('groupQ')), 
-             aes(x=term, y=estimate, color=term))+
+             aes(x=term, y=estimate*-1, color=term),size = 3.5)+
   geom_errorbar(data=filter(resultsLM.PvQ, term %in% c('groupQ')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), 
+                width=.2,size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
   scale_x_discrete(labels = 'July_Extreme') +
   xlab("")+ylab("")+
   plotTheme1 +
-   theme(legend.position = 0) +theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+   theme(legend.position = 0) +theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank(), axis.text = element_text(size = 18))
 
 LMplot90.PvQ
 
@@ -811,16 +862,16 @@ LMplot90.RvS = ggplot() +
  scale_color_manual(values = 'dodgerblue3')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(resultsLM.RvS, term %in% c('groupS')), 
-             aes(x=term, y=estimate, color=term))+
+             aes(x=term, y=estimate*-1, color=term),size = 3.5)+
   geom_errorbar(data=filter(resultsLM.RvS, term %in% c('groupS')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), 
+                width=.2,size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
   scale_x_discrete(labels = 'August_Moderate') +
   xlab("")+ylab("")+
   plotTheme1 +
    theme(legend.position = 0) +
-  theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+  theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank(), axis.text = element_text(size = 18))
 
 LMplot90.RvS
 
@@ -829,16 +880,16 @@ LMplot90.TvU = ggplot() +
  scale_color_manual(values = 'dodgerblue3')+
   geom_hline(yintercept=0)+
   geom_point(data= filter(resultsLM.TvU, term %in% c('groupU')), 
-             aes(x=term, y=estimate, color=term))+
+             aes(x=term, y=estimate*-1, color=term),size = 3.5)+
   geom_errorbar(data=filter(resultsLM.TvU, term %in% c('groupU')), 
-                aes(x=term, ymin=estimate+1.96*std.error, ymax=estimate-1.96*std.error, color=term), 
-                width=.2, position=position_dodge(.9)) +
+                aes(x=term, ymin=-1*estimate-1.96*std.error, ymax=-1*estimate+1.96*std.error, color=term), 
+                width=.2,size = 1.5) +
   coord_cartesian(ylim=c(-10,10))+
     scale_x_discrete(labels = 'August_Extreme') +
   xlab("")+ylab("")+
   plotTheme1 +
    theme(legend.position = 0) +
-  theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank())
+  theme(legend.position = 0, axis.line.y = element_blank(), axis.text.y = element_blank(), panel.border = element_blank(), axis.ticks.y = element_blank(), axis.text = element_text(size = 18))
 
 LMplot90.TvU
 ################################
@@ -847,9 +898,9 @@ LMplot90.TvU
  lo.eos.boxplot = 
 BudsSummary %>% ggplot(aes(lo.timing, EOS, fill = lo.timing)) + 
   geom_boxplot(notch = T) + 
-  scale_fill_manual(values = c('grey70','dodgerblue3')) +
+  scale_fill_manual(values = c('#48b649','#2964af')) +
    xlab('')+ylab("Bud set date") +
-  plotTheme1 + theme(legend.position = 0)
+  plotTheme1 + theme(legend.position = 0, axis.text = element_text(size = 20), axis.title = element_text(size = 22), axis.text.y = element_text(angle = 15))
   # ggtitle('Leaf-out timing')
 
  lo.eos.boxplot
@@ -860,8 +911,20 @@ BudsSummary %>% ggplot(aes(lo.timing, EOS, fill = lo.timing)) +
 
 # Early vs Late budset boxplot
 #topptx(figure = lo.eos.boxplot, filename = 'early_vs_late_boxplot.pptx')
+ 
+ #ggsave(filename = 'BudSetBoxplot.pdf', plot = lo.eos.boxplot, path = output.path, height = 6, width = 7)
 
-# Merge separated bud set anomaly plots with each late treatment compared to its respective early treatment as well as early vs late boxplot
+# Merge separated bud set anomaly plots with each treatment compared to its respective control as well as early vs late boxplot
+ 
+ layout = "AAA
+ BBB"
+ 
+ CombinedBox_AnomalyPlot = lo.eos.boxplot + LMplotBudSetModerate +
+   plot_layout(design = layout, tag_level = 'new') + plot_annotation(tag_levels = c('a','b')) &
+  theme(plot.tag = element_text(face = 'bold'))
+ 
+  CombinedBox_AnomalyPlot
+  
 ######################################################################################
 
 #Merge anomaly plots
@@ -870,15 +933,11 @@ layout2 <- "ABCDE"
 
 CombinedBudSepPlotEarlyLate2 = LMplot90.LvM + LMplot90.NvO + LMplot90.PvQ + LMplot90.RvS + LMplot90.TvU +
   plot_layout(design = layout2, tag_level = 'new')
-# plot_annotation(tag_levels = list(c('','','','','')))&
- # theme(plot.tag = element_text(face = 'bold'))
   
+CombinedBudSepPlotEarlyLate2
 #topptx(figure= CombinedBudSepPlotEarlyLate2, filename = 'CombinedBudSepPlotEarlyLate2.pptx')
 
-#Save PDF
-#pdf("/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/CombinedBudSepPlotEarlyLate2.pdf", useDingbats=FALSE)
-#CombinedBudSepPlotEarlyLate2 
-#dev.off()
+#ggsave(filename = 'SuppFig_all_treatments.pdf', plot = CombinedBudSepPlotEarlyLate2, path = output.path, height = 6, width = 11)
 
 ```
 
@@ -942,22 +1001,26 @@ toplot.resultsRelAutGrowth = toplot.resultsRelAutGrowth %>%
 
 # plot
 LMplotRelAutGrowth2 = ggplot() + 
-  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  scale_color_manual(values = c('#48b649','#2964af'))+
   geom_hline(yintercept=0)+
   geom_point(data= filter(toplot.resultsRelAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
-             aes(x=term, y=PercentGrowthChange, color=lo.timing),
+             aes(x=term, y=PercentGrowthChange, color=lo.timing), size = 3.5,
              position=position_dodge(3))+
   geom_errorbar(data=filter(toplot.resultsRelAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
                 aes(x=term, ymin=PercentGrowthChange+1.96*PercentGrowth.se, ymax=PercentGrowthChange-1.96*PercentGrowth.se, color=lo.timing), 
-                width=.2, position=position_dodge(.9)) +
+                width=.2, size = 1.5) +
   coord_cartesian(ylim=c(-20,10))+
   xlab("")+ylab("Relative bud growth anomaly (%)")+
-  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x', switch = 'x') +
   plotTheme1 +
-  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+        axis.text = element_text(size = 20), axis.title = element_text(size = 22),
+        strip.text.x = element_text(size = 22), strip.placement = 'outside',
+        legend.position = c(.85, .9), legend.title = element_text(size = 20), legend.text = element_text(size = 20), panel.border = element_blank())
 
 LMplotRelAutGrowth2
-#topptx(figure = LMplotRelAutGrowth2, filename = 'LMplotRelAutGrowth2.pptx')
+
+#ggsave(filename = 'SuppFig_RelGrowth.pdf', plot = LMplotRelAutGrowth2, path = output.path, height = 10, width = 11)
 
 ```
 
@@ -976,22 +1039,26 @@ toplot.resultsAbsAutGrowth = toplot.resultsAbsAutGrowth %>%
 
 # plot
 LMplotAbsAutGrowth2 = ggplot() + 
-  scale_color_manual(values = c('grey70','dodgerblue3'))+
+  scale_color_manual(values = c('#48b649','#2964af'))+
   geom_hline(yintercept=0)+
   geom_point(data= filter(toplot.resultsAbsAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
-             aes(x=term, y=PercentGrowthChange, color=lo.timing),
+             aes(x=term, y=PercentGrowthChange, color=lo.timing), size = 3.5,
              position=position_dodge(3))+
   geom_errorbar(data=filter(toplot.resultsAbsAutGrowth, term %in% c("Early_july_Moderate", "Late_july_Moderate", "Early_july_Extreme", "Late_july_Extreme", "Early_august_Moderate", "Late_august_Moderate", "Early_august_Extreme", "Late_august_Extreme")), 
                 aes(x=term, ymin=PercentGrowthChange+1.96*PercentGrowth.se, ymax=PercentGrowthChange-1.96*PercentGrowth.se, color=lo.timing), 
-                width=.2, position=position_dodge(.9)) +
+                width=.2, size = 1.5) +
   coord_cartesian(ylim=c(-40,10))+
   xlab("")+ylab("Absolute bud growth anomaly (%)")+
-  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x')+
+  facet_grid(cols = vars(category), scales = 'free_x', space = 'free_x', switch = 'x') +
   plotTheme1 +
-  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), panel.border = element_blank())
+  theme(panel.spacing.x = unit(0,"cm"), axis.text.x = element_blank(), axis.ticks.x = element_blank(), 
+        axis.text = element_text(size = 20), axis.title = element_text(size = 22),
+        strip.text.x = element_text(size = 22), strip.placement = 'outside',
+        legend.position = c(.85, .9), legend.title = element_text(size = 20), legend.text = element_text(size = 20), panel.border = element_blank())
 
 LMplotAbsAutGrowth2
-#topptx(figure = LMplotAbsAutGrowth2, filename = 'LMplotAbsAutGrowth2.pptx')
+
+#ggsave(filename = 'SuppFig_AutGrowth.pdf', plot = LMplotAbsAutGrowth2, path = output.path, height = 10, width = 11)
 
 
 #########################################
@@ -1000,12 +1067,12 @@ LMplotAbsAutGrowth2
 ggplot(BudsSummary, aes(EOS.DOY,diff)) +
  stat_poly_line() +
   stat_poly_eq(use_label("eq")) +
-  stat_poly_eq(label.y = 0.9) +
+  stat_poly_eq(label.y = 0.9, size = 2.5) +
   geom_point()+
   ylab('Absolute bud growth (mm)')+xlab('Bud set DOY')+
   plotTheme1 + 
-  theme(axis.text = element_text(size = 13),
-        axis.title = element_text(size = 14))
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 22))
 #ggsave('/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/buds/AbsGrowthByBudSet.pdf', height = 7, width = 10)
 
 ```
@@ -1014,17 +1081,18 @@ ggplot(BudsSummary, aes(EOS.DOY,diff)) +
 
 ```{r bud length}
 
-# PLOT total length ~ bud set timing
+# Plot total length ~ bud set timing
 ggplot(BudsSummary, aes(EOS.DOY,bud.length.y)) +
  stat_poly_line() +
   stat_poly_eq(use_label("eq")) +
-  stat_poly_eq(label.y = 0.9) +
+  stat_poly_eq(label.y = 0.9, size = 4) +
   geom_point()+
   ylab('Final bud length (mm)')+xlab('Bud set DOY')+
   plotTheme1 + 
-  theme(axis.text = element_text(size = 13),
-        axis.title = element_text(size = 14))
-#ggsave('/Users/dominic/Documents/Crowther/r/phen_exp_2023/figures/buds/FinalLengthByBudSet.pdf', height = 7, width = 10)
+  theme(axis.text = element_text(size = 20),
+        axis.title = element_text(size = 22))
+
+#ggsave(paste(output.path, 'SuppFig_FinalLengthByBudSet.pdf', sep = '/'), height = 7, width = 10)
 
 
 # plot relative bud length for all individs
